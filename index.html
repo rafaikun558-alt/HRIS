@@ -867,26 +867,82 @@
 
 <!-- JavaScript Interaktif & Pengecekan Sesi -->
 <script>
-  document.addEventListener("DOMContentLoaded", function() {
-    // Jika ada token sesi tersimpan, verifikasi dulu ke server sebelum redirect.
-    // (Sebelumnya ini hanya cek sessionStorage tanpa validasi server, sehingga
-    // mudah dipalsukan lewat console browser.)
-    var existingToken = sessionStorage.getItem("hrMbsSessionToken");
-    if (existingToken) {
-      google.script.run
-        .withSuccessHandler(function(result) {
-          if (result.valid) {
-            window.location.href = "<?= ScriptApp.getService().getUrl() ?>?page=dashboard";
-          } else {
-            sessionStorage.removeItem("hrMbsSessionToken");
-          }
-        })
-        .withFailureHandler(function() {
-          sessionStorage.removeItem("hrMbsSessionToken");
-        })
-        .validateSession(existingToken);
+
+  // ============================================================
+  // API CONFIG
+  // ============================================================
+  const API_URL = "https://script.google.com/macros/s/AKfycbyMwhVMQ5LzmCMQOOL922mU7wtybZ6K4ezYNMKKHiptBj9ey0p46Uz9OhMCZ0mlvT73JQ/exec";
+
+
+  // ============================================================
+  // HELPER API
+  // Tidak mengubah logika bisnis.
+  // Hanya mengganti google.script.run menjadi fetch().
+  // ============================================================
+  async function callAPI(action, args) {
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        action: action,
+        args: Array.isArray(args) ? args : []
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("HTTP_ERROR_" + response.status);
     }
 
+    const result = await response.json();
+
+    if (!result || result.success !== true) {
+      throw new Error(result && result.message
+        ? result.message
+        : "API_ERROR");
+    }
+
+    return result.data;
+  }
+
+
+  // ============================================================
+  // CEK SESSION SAAT HALAMAN LOGIN DIBUKA
+  // ============================================================
+  document.addEventListener("DOMContentLoaded", function() {
+
+    // Jika ada token sesi tersimpan, verifikasi dulu ke server.
+    var existingToken = sessionStorage.getItem("hrMbsSessionToken");
+
+    if (existingToken) {
+
+      callAPI("validateSession", [existingToken])
+        .then(function(result) {
+
+          if (result && result.valid) {
+
+            // GitHub Pages → dashboard.html
+            window.location.href = "dashboard.html";
+
+          } else {
+
+            sessionStorage.removeItem("hrMbsSessionToken");
+
+          }
+
+        })
+        .catch(function() {
+
+          sessionStorage.removeItem("hrMbsSessionToken");
+
+        });
+    }
+
+
+    // ============================================================
+    // ENTER UNTUK LOGIN
+    // ============================================================
     var usernameInput = document.getElementById('usernameAdmin');
     var passwordInput = document.getElementById('passwordAdmin');
 
@@ -897,47 +953,97 @@
       }
     }
 
-    if (usernameInput) usernameInput.addEventListener("keypress", handleEnter);
-    if (passwordInput) passwordInput.addEventListener("keypress", handleEnter);
+    if (usernameInput) {
+      usernameInput.addEventListener("keypress", handleEnter);
+    }
+
+    if (passwordInput) {
+      passwordInput.addEventListener("keypress", handleEnter);
+    }
+
   });
 
+
+  // ============================================================
+  // PROSES LOGIN ADMIN
+  // ============================================================
   function prosesLoginAdmin() {
+
     var user = document.getElementById('usernameAdmin').value.trim();
     var pass = document.getElementById('passwordAdmin').value.trim();
     var alertBox = document.getElementById('errorAlert');
     var btn = document.getElementById('btnLogin');
 
-    if(!user || !pass) {
+
+    // ------------------------------------------------------------
+    // VALIDASI INPUT
+    // LOGIKA ASLI DIPERTAHANKAN
+    // ------------------------------------------------------------
+    if (!user || !pass) {
+
       alertBox.innerText = "Username dan Password tidak boleh kosong!";
       alertBox.style.display = "block";
+
       return;
     }
 
+
     alertBox.style.display = "none";
+
     btn.disabled = true;
     btn.innerText = "Memproses...";
 
-    google.script.run
-      .withSuccessHandler(function(response) {
-         btn.disabled = false;
-         btn.innerText = "Login to Dashboard";
-         if(response.status === 'success') {
-            // Simpan token sesi asli dari server (bukan sekadar flag "active").
-            sessionStorage.setItem("hrMbsSessionToken", response.sessionToken);
-            window.location.href = response.redirectUrl;
-         } else {
-            alertBox.innerText = response.message;
-            alertBox.style.display = "block";
-         }
+
+    // ------------------------------------------------------------
+    // LOGIN VIA API
+    // ------------------------------------------------------------
+    callAPI("verifikasiLoginAdmin", [user, pass])
+
+      .then(function(response) {
+
+        btn.disabled = false;
+        btn.innerText = "Login to Dashboard";
+
+
+        if (response && response.status === 'success') {
+
+          // Simpan token sesi asli dari server.
+          sessionStorage.setItem(
+            "hrMbsSessionToken",
+            response.sessionToken
+          );
+
+
+          // GitHub Pages → dashboard.html
+          window.location.href = "dashboard.html";
+
+
+        } else {
+
+          alertBox.innerText =
+            response && response.message
+              ? response.message
+              : "Username atau Password salah!";
+
+          alertBox.style.display = "block";
+        }
+
       })
-      .withFailureHandler(function(error) {
-         btn.disabled = false;
-         btn.innerText = "Login to Dashboard";
-         alertBox.innerText = "Terjadi kesalahan sistem.";
-         alertBox.style.display = "block";
-      })
-      .verifikasiLoginAdmin(user, pass);
+
+      .catch(function(error) {
+
+        console.error("Login API Error:", error);
+
+        btn.disabled = false;
+        btn.innerText = "Login to Dashboard";
+
+        alertBox.innerText = "Terjadi kesalahan sistem.";
+        alertBox.style.display = "block";
+
+      });
+
   }
+
 </script>
 
 </body>
