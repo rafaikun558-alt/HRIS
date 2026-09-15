@@ -878,7 +878,8 @@
       google.script.run
         .withSuccessHandler(function(result) {
           if (result.valid) {
-            window.location.href = window.HRIS_CONFIG.APP_BASE_URL.replace(/\/$/, "") + "/dashboard.html";
+            window.location.href = window.HRIS_CONFIG.APP_BASE_URL + 
+              'dashboard.html';
           } else {
             sessionStorage.removeItem("hrMbsSessionToken");
           }
