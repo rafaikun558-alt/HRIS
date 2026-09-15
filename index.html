@@ -926,7 +926,9 @@
          if(response.status === 'success') {
             // Simpan token sesi asli dari server (bukan sekadar flag "active").
             sessionStorage.setItem("hrMbsSessionToken", response.sessionToken);
-            window.location.href = response.redirectUrl;
+            window.location.href = 
+              window.HRIS_CONFIG.APP_BASE_URL +
+              'dashboard.html';
          } else {
             alertBox.innerText = response.message;
             alertBox.style.display = "block";
