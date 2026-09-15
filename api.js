@@ -2,18 +2,25 @@
 
   'use strict';
 
+
   // ============================================================
   // KONFIGURASI
   // ============================================================
 
   var CONFIG = window.HRIS_CONFIG || {};
 
-  var BRIDGE_URL =
-    CONFIG.APPS_SCRIPT_URL +
-    (CONFIG.APPS_SCRIPT_URL.indexOf('?') >= 0 ? '&' : '?') +
-    'page=bridge';
+  var APPS_SCRIPT_URL =
+    CONFIG.APPS_SCRIPT_URL || '';
 
-  var APP_ORIGIN = window.location.origin;
+
+  var BRIDGE_URL =
+    APPS_SCRIPT_URL +
+    (
+      APPS_SCRIPT_URL.indexOf('?') >= 0
+        ? '&'
+        : '?'
+    ) +
+    'page=bridge';
 
 
   // ============================================================
@@ -32,7 +39,7 @@
 
 
   // ============================================================
-  // GENERATE REQUEST ID
+  // MEMBUAT REQUEST ID
   // ============================================================
 
   function createRequestId() {
@@ -63,27 +70,50 @@
       return bridgeFrame;
     }
 
-    bridgeFrame = document.createElement('iframe');
 
-    bridgeFrame.style.position = 'fixed';
-    bridgeFrame.style.width = '1px';
-    bridgeFrame.style.height = '1px';
-    bridgeFrame.style.border = '0';
-    bridgeFrame.style.opacity = '0';
-    bridgeFrame.style.pointerEvents = 'none';
-    bridgeFrame.style.left = '-9999px';
-    bridgeFrame.style.top = '-9999px';
+    bridgeFrame =
+      document.createElement('iframe');
+
+
+    bridgeFrame.style.position =
+      'fixed';
+
+    bridgeFrame.style.width =
+      '1px';
+
+    bridgeFrame.style.height =
+      '1px';
+
+    bridgeFrame.style.border =
+      '0';
+
+    bridgeFrame.style.opacity =
+      '0';
+
+    bridgeFrame.style.pointerEvents =
+      'none';
+
+    bridgeFrame.style.left =
+      '-9999px';
+
+    bridgeFrame.style.top =
+      '-9999px';
+
 
     bridgeFrame.setAttribute(
       'aria-hidden',
       'true'
     );
 
-    bridgeFrame.src = BRIDGE_URL;
+
+    bridgeFrame.src =
+      BRIDGE_URL;
+
 
     document.body.appendChild(
       bridgeFrame
     );
+
 
     return bridgeFrame;
 
@@ -91,79 +121,100 @@
 
 
   // ============================================================
-  // MENUNGGU BRIDGE READY
+  // MENUNGGU BRIDGE SIAP
   // ============================================================
 
   function waitForBridge() {
 
     if (bridgeReady) {
+
       return Promise.resolve();
+
     }
+
 
     if (bridgeReadyPromise) {
+
       return bridgeReadyPromise;
+
     }
 
-    bridgeReadyPromise = new Promise(
-      function (resolve, reject) {
 
-        var timeout = setTimeout(
-          function () {
+    bridgeReadyPromise =
+      new Promise(
+        function (resolve, reject) {
 
-            bridgeReadyPromise = null;
+          var timeout =
+            setTimeout(
+              function () {
 
-            reject(
-              new Error(
-                'Bridge Apps Script tidak merespons.'
-              )
+                bridgeReadyPromise =
+                  null;
+
+                reject(
+                  new Error(
+                    'Bridge Apps Script tidak merespons.'
+                  )
+                );
+
+              },
+              30000
             );
 
-          },
-          30000
-        );
+
+          function readyHandler(event) {
+
+            if (
+              !bridgeFrame ||
+              event.source !==
+                bridgeFrame.contentWindow
+            ) {
+
+              return;
+
+            }
 
 
-        function readyHandler(event) {
+            if (
+              !event.data ||
+              event.data.type !==
+                'HRIS_BRIDGE_READY'
+            ) {
 
-          if (
-            !bridgeFrame ||
-            event.source !== bridgeFrame.contentWindow
-          ) {
-            return;
+              return;
+
+            }
+
+
+            clearTimeout(timeout);
+
+
+            bridgeReady =
+              true;
+
+
+            window.removeEventListener(
+              'message',
+              readyHandler
+            );
+
+
+            resolve();
+
           }
 
-          if (
-            !event.data ||
-            event.data.type !==
-              'HRIS_BRIDGE_READY'
-          ) {
-            return;
-          }
 
-          clearTimeout(timeout);
-
-          bridgeReady = true;
-
-          window.removeEventListener(
+          window.addEventListener(
             'message',
             readyHandler
           );
 
-          resolve();
+
+          createBridge();
 
         }
+      );
 
-
-        window.addEventListener(
-          'message',
-          readyHandler
-        );
-
-
-        createBridge();
-
-      }
-    );
 
     return bridgeReadyPromise;
 
@@ -183,33 +234,45 @@
         event.source !==
           bridgeFrame.contentWindow
       ) {
+
         return;
+
       }
 
 
-      var data = event.data;
+      var data =
+        event.data;
+
 
       if (
         !data ||
         data.type !==
           'HRIS_BRIDGE_RESPONSE'
       ) {
+
         return;
+
       }
 
 
-      var requestId = data.id;
+      var requestId =
+        data.id;
+
 
       if (
         !requestId ||
         !pendingRequests[requestId]
       ) {
+
         return;
+
       }
 
 
       var request =
-        pendingRequests[requestId];
+        pendingRequests[
+          requestId
+        ];
 
 
       delete pendingRequests[
@@ -232,10 +295,11 @@
 
       } else {
 
-        var error = new Error(
-          data.error ||
-          'Terjadi kesalahan pada Apps Script.'
-        );
+        var error =
+          new Error(
+            data.error ||
+            'Terjadi kesalahan pada Apps Script.'
+          );
 
 
         if (
@@ -256,7 +320,7 @@
 
 
   // ============================================================
-  // REQUEST KE BACKEND
+  // MENJALANKAN BACKEND FUNCTION
   // ============================================================
 
   function callBackend(
@@ -334,12 +398,6 @@
 
   // ============================================================
   // COMPATIBILITY LAYER
-  //
-  // MEMBUAT:
-  //
-  // google.script.run
-  //
-  // TETAP BISA DIGUNAKAN OLEH DASHBOARD
   // ============================================================
 
   function createRunner(
@@ -430,14 +488,16 @@
 
 
   // ============================================================
-  // MEMBUAT GOOGLE SCRIPT RUN PALSU
+  // MEMBUAT GOOGLE.SCRIPT.RUN
   // ============================================================
 
   window.google =
     window.google || {};
 
+
   window.google.script =
     window.google.script || {};
+
 
   window.google.script.run =
     createRunner(
