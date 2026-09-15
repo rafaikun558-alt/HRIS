@@ -1,113 +1,449 @@
-/*
- * ============================================================
- * HRIS GITHUB MIGRATION - API COMPATIBILITY SHIM
- * ============================================================
- * Tujuan: mempertahankan pola pemanggilan frontend lama:
- *
- *   google.script.run
- *     .withSuccessHandler(...)
- *     .withFailureHandler(...)
- *     .namaFungsi(arg1, arg2);
- *
- * tanpa google.script.run dari Apps Script HTML Service.
- * Business logic tetap di Code.gs.
- */
 (function () {
-  "use strict";
 
-  if (!window.HRIS_CONFIG || !window.HRIS_CONFIG.API_BASE_URL) {
-    throw new Error("HRIS_CONFIG.API_BASE_URL belum dikonfigurasi.");
+  'use strict';
+
+  // ============================================================
+  // KONFIGURASI
+  // ============================================================
+
+  var CONFIG = window.HRIS_CONFIG || {};
+
+  var BRIDGE_URL =
+    CONFIG.APPS_SCRIPT_URL +
+    (CONFIG.APPS_SCRIPT_URL.indexOf('?') >= 0 ? '&' : '?') +
+    'page=bridge';
+
+  var APP_ORIGIN = window.location.origin;
+
+
+  // ============================================================
+  // VARIABLE INTERNAL
+  // ============================================================
+
+  var bridgeFrame = null;
+
+  var bridgeReady = false;
+
+  var bridgeReadyPromise = null;
+
+  var requestCounter = 0;
+
+  var pendingRequests = {};
+
+
+  // ============================================================
+  // GENERATE REQUEST ID
+  // ============================================================
+
+  function createRequestId() {
+
+    requestCounter++;
+
+    return (
+      'hris_' +
+      Date.now() +
+      '_' +
+      requestCounter +
+      '_' +
+      Math.random()
+        .toString(36)
+        .substring(2, 10)
+    );
+
   }
 
-  function makeError(message, status) {
-    var err = new Error(message || "Terjadi kesalahan API.");
-    err.status = status || 0;
-    return err;
+
+  // ============================================================
+  // MEMBUAT IFRAME BRIDGE
+  // ============================================================
+
+  function createBridge() {
+
+    if (bridgeFrame) {
+      return bridgeFrame;
+    }
+
+    bridgeFrame = document.createElement('iframe');
+
+    bridgeFrame.style.position = 'fixed';
+    bridgeFrame.style.width = '1px';
+    bridgeFrame.style.height = '1px';
+    bridgeFrame.style.border = '0';
+    bridgeFrame.style.opacity = '0';
+    bridgeFrame.style.pointerEvents = 'none';
+    bridgeFrame.style.left = '-9999px';
+    bridgeFrame.style.top = '-9999px';
+
+    bridgeFrame.setAttribute(
+      'aria-hidden',
+      'true'
+    );
+
+    bridgeFrame.src = BRIDGE_URL;
+
+    document.body.appendChild(
+      bridgeFrame
+    );
+
+    return bridgeFrame;
+
   }
 
-  async function callBackend(functionName, args) {
-    var response = await fetch(window.HRIS_CONFIG.API_BASE_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        action: functionName,
-        args: Array.isArray(args) ? args : []
-      })
-    });
 
-    var text = await response.text();
-    var payload;
-    try {
-      payload = text ? JSON.parse(text) : null;
-    } catch (e) {
-      throw makeError("Respons backend tidak valid.", response.status);
+  // ============================================================
+  // MENUNGGU BRIDGE READY
+  // ============================================================
+
+  function waitForBridge() {
+
+    if (bridgeReady) {
+      return Promise.resolve();
     }
 
-    if (!response.ok || !payload || payload.ok !== true) {
-      var msg = payload && payload.message ? payload.message : ("HTTP " + response.status);
-      throw makeError(msg, response.status);
+    if (bridgeReadyPromise) {
+      return bridgeReadyPromise;
     }
 
-    var result = payload.result;
+    bridgeReadyPromise = new Promise(
+      function (resolve, reject) {
 
-    // Business function verifikasiLoginAdmin() asli mengembalikan redirectUrl
-    // Apps Script. Pada frontend eksternal, arahkan ke dashboard frontend.
-    if (functionName === "verifikasiLoginAdmin" && result && result.status === "success") {
-      result.redirectUrl = String(window.HRIS_CONFIG.APP_BASE_URL || "").replace(/\/$/, "") + "/dashboard.html";
-    }
+        var timeout = setTimeout(
+          function () {
 
-    return result;
-  }
+            bridgeReadyPromise = null;
 
-  function createRunner(chain) {
-    var runner = {};
+            reject(
+              new Error(
+                'Bridge Apps Script tidak merespons.'
+              )
+            );
 
-    runner.withSuccessHandler = function (fn) {
-      chain.success = typeof fn === "function" ? fn : null;
-      return createRunner(chain);
-    };
+          },
+          30000
+        );
 
-    runner.withFailureHandler = function (fn) {
-      chain.failure = typeof fn === "function" ? fn : null;
-      return createRunner(chain);
-    };
 
-    return new Proxy(runner, {
-      get: function (target, prop) {
-        if (prop in target) return target[prop];
-        if (typeof prop !== "string") return target[prop];
+        function readyHandler(event) {
 
-        return function () {
-          var args = Array.prototype.slice.call(arguments);
-          var success = chain.success;
-          var failure = chain.failure;
+          if (
+            !bridgeFrame ||
+            event.source !== bridgeFrame.contentWindow
+          ) {
+            return;
+          }
 
-          callBackend(prop, args)
-            .then(function (result) {
-              if (success) success(result);
-            })
-            .catch(function (error) {
-              if (failure) failure(error);
-              else console.error("HRIS API error:", error);
-            });
-        };
+          if (
+            !event.data ||
+            event.data.type !==
+              'HRIS_BRIDGE_READY'
+          ) {
+            return;
+          }
+
+          clearTimeout(timeout);
+
+          bridgeReady = true;
+
+          window.removeEventListener(
+            'message',
+            readyHandler
+          );
+
+          resolve();
+
+        }
+
+
+        window.addEventListener(
+          'message',
+          readyHandler
+        );
+
+
+        createBridge();
+
       }
-    });
+    );
+
+    return bridgeReadyPromise;
+
   }
 
-  // Kompatibilitas dengan bentuk lama google.script.run.
-  window.google = window.google || {};
-  window.google.script = window.google.script || {};
-  window.google.script.run = createRunner({ success: null, failure: null });
 
-  window.HRISFrontend = {
-    getAppBaseUrl: function () {
-      return String(window.HRIS_CONFIG.APP_BASE_URL || "").replace(/\/$/, "");
-    },
-    getLoginUrl: function () {
-      return String(window.HRIS_CONFIG.APP_BASE_URL || "").replace(/\/$/, "") + "/index.html";
+  // ============================================================
+  // MENERIMA RESPONSE DARI BRIDGE
+  // ============================================================
+
+  window.addEventListener(
+    'message',
+    function (event) {
+
+      if (
+        !bridgeFrame ||
+        event.source !==
+          bridgeFrame.contentWindow
+      ) {
+        return;
+      }
+
+
+      var data = event.data;
+
+      if (
+        !data ||
+        data.type !==
+          'HRIS_BRIDGE_RESPONSE'
+      ) {
+        return;
+      }
+
+
+      var requestId = data.id;
+
+      if (
+        !requestId ||
+        !pendingRequests[requestId]
+      ) {
+        return;
+      }
+
+
+      var request =
+        pendingRequests[requestId];
+
+
+      delete pendingRequests[
+        requestId
+      ];
+
+
+      if (data.ok) {
+
+        if (
+          typeof request.successHandler ===
+          'function'
+        ) {
+
+          request.successHandler(
+            data.result
+          );
+
+        }
+
+      } else {
+
+        var error = new Error(
+          data.error ||
+          'Terjadi kesalahan pada Apps Script.'
+        );
+
+
+        if (
+          typeof request.failureHandler ===
+          'function'
+        ) {
+
+          request.failureHandler(
+            error
+          );
+
+        }
+
+      }
+
     }
-  };
+  );
+
+
+  // ============================================================
+  // REQUEST KE BACKEND
+  // ============================================================
+
+  function callBackend(
+    functionName,
+    args,
+    successHandler,
+    failureHandler
+  ) {
+
+    waitForBridge()
+
+      .then(
+        function () {
+
+          var requestId =
+            createRequestId();
+
+
+          pendingRequests[
+            requestId
+          ] = {
+
+            successHandler:
+              successHandler,
+
+            failureHandler:
+              failureHandler
+
+          };
+
+
+          bridgeFrame.contentWindow.postMessage(
+            {
+              type:
+                'HRIS_BRIDGE_REQUEST',
+
+              id:
+                requestId,
+
+              action:
+                functionName,
+
+              args:
+                Array.isArray(args)
+                  ? args
+                  : []
+
+            },
+
+            '*'
+          );
+
+        }
+      )
+
+      .catch(
+        function (error) {
+
+          if (
+            typeof failureHandler ===
+            'function'
+          ) {
+
+            failureHandler(
+              error
+            );
+
+          }
+
+        }
+      );
+
+  }
+
+
+  // ============================================================
+  // COMPATIBILITY LAYER
+  //
+  // MEMBUAT:
+  //
+  // google.script.run
+  //
+  // TETAP BISA DIGUNAKAN OLEH DASHBOARD
+  // ============================================================
+
+  function createRunner(
+    successHandler,
+    failureHandler
+  ) {
+
+    var runner = {
+
+      withSuccessHandler:
+        function (handler) {
+
+          return createRunner(
+            handler,
+            failureHandler
+          );
+
+        },
+
+
+      withFailureHandler:
+        function (handler) {
+
+          return createRunner(
+            successHandler,
+            handler
+          );
+
+        }
+
+    };
+
+
+    return new Proxy(
+      runner,
+      {
+
+        get:
+          function (
+            target,
+            property
+          ) {
+
+            if (
+              property in target
+            ) {
+
+              return target[
+                property
+              ];
+
+            }
+
+
+            if (
+              typeof property !==
+              'string'
+            ) {
+
+              return undefined;
+
+            }
+
+
+            return function () {
+
+              var args =
+                Array.prototype.slice.call(
+                  arguments
+                );
+
+
+              callBackend(
+                property,
+                args,
+                successHandler,
+                failureHandler
+              );
+
+            };
+
+          }
+
+      }
+    );
+
+  }
+
+
+  // ============================================================
+  // MEMBUAT GOOGLE SCRIPT RUN PALSU
+  // ============================================================
+
+  window.google =
+    window.google || {};
+
+  window.google.script =
+    window.google.script || {};
+
+  window.google.script.run =
+    createRunner(
+      null,
+      null
+    );
+
+
 })();
