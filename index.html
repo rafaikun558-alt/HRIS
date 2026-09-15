@@ -865,9 +865,11 @@
 </div>
 
 
+<!-- Migrasi GitHub Pages → Apps Script Bridge -->
+<script src="./config.js"></script>
+<script src="./api.js"></script>
+
 <!-- JavaScript Interaktif & Pengecekan Sesi -->
-<script src="config.js"></script>
-<script src="api.js"></script>
 <script>
   document.addEventListener("DOMContentLoaded", function() {
     // Jika ada token sesi tersimpan, verifikasi dulu ke server sebelum redirect.
@@ -878,7 +880,8 @@
       google.script.run
         .withSuccessHandler(function(result) {
           if (result.valid) {
-            window.location.href = window.HRIS_CONFIG.APP_BASE_URL + 
+            window.location.href =
+              window.HRIS_CONFIG.APP_BASE_URL +
               'dashboard.html';
           } else {
             sessionStorage.removeItem("hrMbsSessionToken");
@@ -927,7 +930,7 @@
          if(response.status === 'success') {
             // Simpan token sesi asli dari server (bukan sekadar flag "active").
             sessionStorage.setItem("hrMbsSessionToken", response.sessionToken);
-            window.location.href = 
+            window.location.href =
               window.HRIS_CONFIG.APP_BASE_URL +
               'dashboard.html';
          } else {
